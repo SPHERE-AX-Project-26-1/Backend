@@ -21,7 +21,26 @@ cd <프로젝트 폴더>
 
 ---
 
-## 2. 가상환경 생성
+## 2. .env 생성 및 환경변수 입력
+
+프로젝트 루트에 .env 파일을 생성하고 아래 환경변수 값을 입력합니다.
+
+```text
+SECRET_KEY = {YOUR_DJANGO_SECRET_KEY}
+DEBUG = True
+
+DB_NAME={YOUR_DB_NAME}
+DB_USER={YOUR_DB_USER}
+DB_PASSWORD={YOUR_DB_PASSWORD}
+DB_HOST={YOUR_DB_HOST}
+DB_PORT={YOUR_DB_PORT}
+
+FASTAPI_BASE_URL=http://localhost:8000
+```
+
+---
+
+## 3. 가상환경 생성
 
 프로젝트 루트에서 아래 명령어를 실행합니다.
 
@@ -31,7 +50,7 @@ python -m venv .venv
 
 ---
 
-## 3. 가상환경 활성화
+## 4. 가상환경 활성화
 
 사용 중인 터미널에 따라 아래 명령어를 사용합니다.
 
@@ -63,7 +82,7 @@ source .venv/Scripts/activate
 
 ---
 
-## 4. pip 업데이트
+## 5. pip 업데이트
 
 ```bash
 python -m pip install --upgrade pip
@@ -71,15 +90,15 @@ python -m pip install --upgrade pip
 
 ---
 
-## 5. 필수 패키지 설치
+## 6. 필수 패키지 설치
 
 현재 프로젝트의 기본 패키지는 아래와 같습니다.
 
 ```bash
-python -m pip install Django==5.2.12 djangorestframework==3.16.1
+python -m pip install Django==5.2.12 djangorestframework==3.16.1 mysqlclient==2.2.8 python-dotenv==1.2.2
 ```
 
-## 6. 작업 종료 후 가상환경 비활성화
+## 7. 작업 종료 후 가상환경 비활성화
 
 ```bash
 deactivate
