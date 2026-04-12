@@ -1,2 +1,7 @@
+# Python / Django
 __pycache__/
 *.pyc
+db.sqlite3
+videos/
+.env
+venv311
