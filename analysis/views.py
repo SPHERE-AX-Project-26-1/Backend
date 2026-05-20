@@ -10,6 +10,8 @@ from .models import Basin
 from .models import SystemLog
 import json
 from django.views.decorators.csrf import csrf_exempt
+from django.db.models import Avg
+from django.utils import timezone
 
 # 테스트용 ping
 @api_view(['GET'])
@@ -20,94 +22,84 @@ def ping(request):
 # 회원가입
 @api_view(['POST'])
 def signup(request):
-    username = request.data.get("username")
+    user_id = request.data.get("userId")
     password = request.data.get("password")
-    password2 = request.data.get("password2")
     name = request.data.get("name", "")
     email = request.data.get("email", "")
 
-    # 필수 필드 검증
-    if not username or not password:
+    if not user_id or not password or not name or not email:
         return Response(
-            {"success": False, "message": "아이디와 비밀번호는 필수입니다."},
+            {"message": "입력값을 확인해주세요."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    # 비밀번호 확인
-    if password != password2:
+    if User.objects.filter(username=user_id).exists():
         return Response(
-            {"success": False, "message": "비밀번호가 일치하지 않습니다."},
-            status=status.HTTP_400_BAD_REQUEST
-        )
-
-    # 아이디 중복 체크
-    if User.objects.filter(username=username).exists():
-        return Response(
-            {"success": False, "message": "이미 사용 중인 아이디입니다."},
+            {"message": "이미 사용 중인 아이디입니다."},
             status=status.HTTP_409_CONFLICT
         )
 
-    # 유저 생성
     User.objects.create_user(
-        username=username,
+        username=user_id,
         password=password,
         email=email,
         first_name=name,
     )
 
-    return Response(
-        {"success": True, "message": "회원가입이 완료되었습니다."},
-        status=status.HTTP_201_CREATED
-    )
+    return Response(status=status.HTTP_201_CREATED)
 
 
 # 로그인
 @api_view(['POST'])
 def login(request):
-    username = request.data.get("username")
+    user_id = request.data.get("userId")
     password = request.data.get("password")
 
     try:
-        user = User.objects.get(username=username)
+        user = User.objects.get(username=user_id)
     except User.DoesNotExist:
         return Response(
-            {"success": False, "message": "아이디 또는 비밀번호가 올바르지 않습니다."},
+            {"message": "아이디 또는 비밀번호가 올바르지 않습니다."},
             status=status.HTTP_401_UNAUTHORIZED
         )
 
     if not user.check_password(password):
         return Response(
-            {"success": False, "message": "아이디 또는 비밀번호가 올바르지 않습니다."},
+            {"message": "아이디 또는 비밀번호가 올바르지 않습니다."},
             status=status.HTTP_401_UNAUTHORIZED
         )
 
-    # simplejwt access / refresh 토큰 발급
     refresh = RefreshToken.for_user(user)
 
     return Response({
-        "success": True,
-        "access": str(refresh.access_token),
-        "refresh": str(refresh),
+        "token": str(refresh.access_token),
+        "user": {
+            "userId": user.username,
+            "name": user.first_name,
+            "email": user.email
+        }
     }, status=status.HTTP_200_OK)
 
 
 # 아이디 중복 체크
 @api_view(['GET'])
 def check_username(request):
-    username = request.GET.get("username", "").strip()
+    user_id = request.GET.get("userId", "").strip()
 
-    if not username:
+    if not user_id:
         return Response(
-            {"success": False, "message": "아이디를 입력해주세요."},
+            {"message": "입력값을 확인해주세요."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    is_duplicate = User.objects.filter(username=username).exists()
+    exists = User.objects.filter(username=user_id).exists()
 
     return Response(
-        {"is_duplicate": is_duplicate},
+        {"available": not exists},
         status=status.HTTP_200_OK
     )
+
+
 
 def video_list(request):
     videos = Video.objects.all()
@@ -172,44 +164,50 @@ def video_detail(request, video_id):
     try:
         v = Video.objects.get(id=video_id)
     except Video.DoesNotExist:
-        return JsonResponse({"error": "Not found"}, status=404)
+        return JsonResponse({"message": "존재하지 않는 영상입니다."}, status=404)
+
+    region_avg = Video.objects.filter(region=v.region).aggregate(
+        avg=Avg("fish_count")
+    )["avg"] or 0
+
+    year_avg = Video.objects.filter(date__year=timezone.now().year).aggregate(
+        avg=Avg("fish_count")
+    )["avg"] or 0
 
     return JsonResponse({
         "id": v.id,
         "filename": v.filename,
-        "video_url": v.file.url,
-        "date": v.date,
+        "date": str(v.date),
+        "uploadTime": str(v.date),
         "region": v.region,
-        "fish_count": v.fish_count,
-        "total_count": v.total_count,
-        "other_count": v.total_count - v.fish_count,
-        "timestamps": [],
-        "avg_region": 0,
-        "avg_year": 0
+        "location": getattr(v, "location", ""),
+        "gps": getattr(v, "gps", ""),
+        "ganjunchiCount": v.fish_count,
+        "totalCount": v.total_count,
+        "weather": getattr(v, "weather", ""),
+        "duration": getattr(v, "duration", ""),
+        "detectionRanges": [],
+        "regionAvg": int(region_avg),
+        "yearAvg": int(year_avg),
+        "uploader": getattr(v, "uploader", "")
     })
 
 def log_list(request):
     logs = SystemLog.objects.all().order_by('-created_at')
 
-    page = int(request.GET.get('page', 1))
-    size = int(request.GET.get('size', 10))
-
-    paginator = Paginator(logs, size)
-    page_obj = paginator.get_page(page)
-
     data = []
-    for log in page_obj:
+
+    for log in logs:
         data.append({
             "id": log.id,
-            "event_type": log.event_type,
-            "message": log.message,
-            "user_id": log.user_id,
-            "created_at": log.created_at,
+            "datetime": log.created_at.strftime("%Y-%m-%d %H:%M"),
+            "eventType": log.event_type,
+            "detail": log.message,
+            "user": "시스템"
         })
 
     return JsonResponse({
-        "logs": data,
-        "total_pages": paginator.num_pages
+        "items": data
     })
 
 @api_view(['POST'])
