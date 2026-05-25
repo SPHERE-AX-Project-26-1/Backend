@@ -1,17 +1,30 @@
 from datetime import date
-from django.db.models import Sum, Count, Value, IntegerField
+from django.db.models import BigIntegerField, Sum, Count, Value, IntegerField
 from django.db.models.functions import Coalesce, TruncMonth
 
 # video 모델 merge 필요
 from videos.models import Video
 
 
-WEATHER_ORDER = ["맑음", "흐림", "비", "눈", "안개"]
+WEATHER_LABELS = ["맑음", "흐림", "비", "눈", "안개"]
+
+WEATHER_DB_TO_LABEL = {
+    Video.Weather.CLEAR: "맑음",
+    Video.Weather.CLOUDY: "흐림",
+    Video.Weather.RAIN: "비",
+    Video.Weather.SNOW: "눈",
+    Video.Weather.FOG: "안개",
+}
+
+WEATHER_LABEL_TO_DB = {
+    label: db_value
+    for db_value, label in WEATHER_DB_TO_LABEL.items()
+}
 
 
 def get_base_queryset(start_date, end_date):
     return Video.objects.filter(
-        status="COMPLETED",
+        status=Video.Status.COMPLETED,
         created_at__date__gte=start_date,
         created_at__date__lte=end_date,
     )
@@ -30,7 +43,7 @@ def sum_skygazer_count(qs):
         total=Coalesce(
             Sum("skygazer_count"),
             Value(0),
-            output_field=IntegerField(),
+            output_field=BigIntegerField(),
         )
     )["total"]
 
@@ -53,9 +66,9 @@ def get_total_detected(start_date, end_date):
         )
 
     return {
-        "totalDetected": total_detected,
-        "prevYearDetected": prev_year_detected,
-        "yearOverYearChange": year_over_year_change,
+        "totalDetected": int(total_detected),
+        "prevYearDetected": int(prev_year_detected),
+        "yearOverYearChange": int(year_over_year_change),
     }
 
 
@@ -66,7 +79,7 @@ def get_total_videos(start_date, end_date):
     first_day_of_month = today.replace(day=1)
 
     this_month_videos = Video.objects.filter(
-        status="COMPLETED",
+        status=Video.Status.COMPLETED,
         created_at__date__gte=first_day_of_month,
         created_at__date__lte=today,
     ).count()
@@ -86,10 +99,10 @@ def get_top_region(start_date, end_date):
             count=Coalesce(
                 Sum("skygazer_count"),
                 Value(0),
-                output_field=IntegerField(),
+                output_field=BigIntegerField(),
             )
         )
-        .order_by("-count")
+        .order_by("-count", "region__region_name")
         .first()
     )
 
@@ -116,10 +129,10 @@ def get_top_weather(start_date, end_date):
             count=Coalesce(
                 Sum("skygazer_count"),
                 Value(0),
-                output_field=IntegerField(),
+                output_field=BigIntegerField(),
             )
         )
-        .order_by("-count")
+        .order_by("-count", "weather")
         .first()
     )
 
@@ -129,11 +142,12 @@ def get_top_weather(start_date, end_date):
             "percentage": 0,
         }
 
+    weather_label = WEATHER_DB_TO_LABEL.get(row["weather"], row["weather"])
     percentage = round((row["count"] / total_detected) * 100)
 
     return {
-        "name": row["weather"],
-        "percentage": percentage,
+        "name": weather_label,
+        "percentage": int(percentage),
     }
 
 
@@ -160,15 +174,16 @@ def get_monthly_stats(start_date, end_date):
             total=Coalesce(
                 Sum("skygazer_count"),
                 Value(0),
-                output_field=IntegerField(),
+                output_field=BigIntegerField(),
             )
         )
         .order_by("month")
     )
 
     month_map = {
-        date(row["month"].year, row["month"].month, 1): row["total"]
+        date(row["month"].year, row["month"].month, 1): int(row["total"])
         for row in rows
+        if row["month"] is not None
     }
 
     labels = []
@@ -193,15 +208,15 @@ def get_by_region_stats(start_date, end_date):
             total=Coalesce(
                 Sum("skygazer_count"),
                 Value(0),
-                output_field=IntegerField(),
+                output_field=BigIntegerField(),
             )
         )
-        .order_by("-total")
+        .order_by("-total", "region__region_name")
     )
 
     return {
         "labels": [row["region__region_name"] for row in rows],
-        "data": [row["total"] for row in rows],
+        "data": [int(row["total"]) for row in rows],
     }
 
 
@@ -214,17 +229,20 @@ def get_by_weather_stats(start_date, end_date):
             total=Coalesce(
                 Sum("skygazer_count"),
                 Value(0),
-                output_field=IntegerField(),
+                output_field=BigIntegerField(),
             )
         )
     )
 
     weather_map = {
-        row["weather"]: row["total"]
+        row["weather"]: int(row["total"])
         for row in rows
     }
 
     return {
-        "labels": WEATHER_ORDER,
-        "data": [weather_map.get(weather, 0) for weather in WEATHER_ORDER],
+        "labels": WEATHER_LABELS,
+        "data": [
+            weather_map.get(WEATHER_LABEL_TO_DB[label], 0)
+            for label in WEATHER_LABELS
+        ],
     }
