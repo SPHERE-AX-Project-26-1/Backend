@@ -43,6 +43,13 @@ class Video(models.Model):
         COMPLETED = "COMPLETED", "COMPLETED"
         FAILED = "FAILED", "FAILED"
 
+    class Weather(models.TextChoices):
+        CLEAR = "CLEAR", "CLEAR"
+        CLOUDY = "CLOUDY", "CLOUDY"
+        RAIN = "RAIN", "RAIN"
+        FOG = "FOG", "FOG"
+        SNOW = "SNOW", "SNOW"
+
     id = models.BigAutoField(primary_key=True)
 
     user = models.ForeignKey(
@@ -70,9 +77,14 @@ class Video(models.Model):
         validators=[MinValueValidator(0)]
     )
 
-    weather = models.CharField(max_length=50, blank=True)
+    weather = models.CharField(
+        max_length=10,
+        choices=Weather.choices
+    )
 
     duration = models.PositiveIntegerField(validators=[MinValueValidator(1)])
+
+    date = models.DateTimeField()
 
     fish_count = models.BigIntegerField(default=0)
     skygazer_count = models.BigIntegerField(default=0)
@@ -92,3 +104,25 @@ class Video(models.Model):
 
     def __str__(self):
         return f"{self.id} - {self.title}"
+
+
+class DetectedTime(models.Model):
+    id = models.BigAutoField(primary_key=True)
+
+    video = models.ForeignKey(
+        Video,
+        on_delete=models.CASCADE,
+        db_column="video_id",
+        related_name="detected_times"
+    )
+
+    fish_type = models.CharField(max_length=50)
+
+    start_time = models.PositiveIntegerField(validators=[MinValueValidator(0)])
+    end_time = models.PositiveIntegerField(validators=[MinValueValidator(0)])
+
+    class Meta:
+        db_table = "DETECTED_TIME"
+
+    def __str__(self):
+        return f"Video ID: {self.video_id}, {self.fish_type}: {self.start_time}-{self.end_time}s"

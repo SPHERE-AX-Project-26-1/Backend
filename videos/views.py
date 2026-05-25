@@ -1,3 +1,5 @@
+from time import timezone
+
 from django.shortcuts import render
 
 from pathlib import Path
@@ -15,35 +17,52 @@ from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated
 import requests
 
-from .models import Region, Video
-from .serializers import RegionListSerializer, VideoUploadRequestSerializer
+from .models import Region, Video, DetectedTime
 
 
 MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi"}
 
-# FastAPI 개발 후 수정 예정
-def send_to_fast_api(file_path: str) -> dict:
-    url = f"{settings.FAST_BASE_URL}/api/track"
+def call_fastapi(file_path: str) -> dict:
+    url = f"{settings.FAST_BASE_URL.rstrip('/')}/api/analyze"
+
     payload = {
-        "video_path": video_path,
+        "video_path": file_path,
         "conf": 0.25,
+        "cls_conf": 0.0,
         "imgsz": 640,
+        "cls_imgsz": 224,
         "vid_stride": 1,
         "include_frames": False,
         "save_thumbnail": True,
-        "save_annotated": False,
         "tracker": "botsort.yaml",
         "iou": 0.7,
+        "crop_margin": 0.15,
     }
-    response = requests.post(
-        url,
-        json=payload,
-        timeout=300,
-    )
 
-    response.raise_for_status()
-    return response.json()
+    try:
+        response = requests.post(
+            url,
+            json=payload,
+            timeout=getattr(settings, "FASTAPI_ANALYZE_TIMEOUT", 900),
+        )
+    except requests.exceptions.RequestException as e:
+        raise RuntimeError(f"FastAPI 서버 호출 실패 : {e}")
+
+    if response.status_code >= 400:
+        try:
+            detail = response.json()
+        except ValueError:
+            detail = response.text
+
+        raise RuntimeError(
+            f"FastAPI 분석 요청 실패 : status={response.status_code}, detail={detail}"
+        )
+
+    try:
+        return response.json()
+    except ValueError:
+        raise RuntimeError("FastAPI 응답이 JSON 형식 오류")
 
 def get_video_mime_type(ext):
     if ext == ".mp4":
@@ -51,6 +70,43 @@ def get_video_mime_type(ext):
     if ext == ".avi":
         return "video/x-msvideo"
     return "application/octet-stream"
+
+def convert_to_int_seconds(value, default=0):
+    if value is None:
+        return default
+    try:
+        return int(round(float(value)))
+    except (TypeError, ValueError):
+        return default
+    
+
+# 개체 탐지 시간 DB에 저장하는 함수
+def save_detected_times(video: Video, fastapi_result: dict):
+    tracks = fastapi_result.get("tracks") or []
+
+    detected_time_objects = []
+
+    for track in tracks:
+        fish_type = track.get("species") or "others"
+
+        start_time = convert_to_int_seconds(track.get("first_time_sec"), default=0)
+        end_time = convert_to_int_seconds(track.get("last_time_sec"), default=start_time)
+
+        if end_time < start_time:
+            end_time = start_time
+
+
+        detected_time_objects.append(
+            DetectedTime(
+                video=video,
+                fish_type=fish_type,
+                start_time=start_time,
+                end_time=end_time,
+            )
+        )
+
+    if detected_time_objects:
+        DetectedTime.objects.bulk_create(detected_time_objects)
 
 
 class VideoUploadView(APIView):
@@ -72,17 +128,16 @@ class VideoUploadView(APIView):
             )
 
         # riverId 정수 변환 및 REGION 존재 검증
-        # try:
-        #     river_id = int(river_id)
-        # except (TypeError, ValueError):
-        #     return Response(
-        #         {
-        #             "message": "riverId는 정수여야 합니다."
-        #         },
-        #         status=drf_status.HTTP_400_BAD_REQUEST,
-        #     )
-
-        # region = get_object_or_404(Region, id=river_id)
+        try:
+            river_id = int(river_id)
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "message": "riverId는 정수여야 합니다."
+                },
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+        region = get_object_or_404(Region, id=river_id)
 
         # duration 정수 변환 및 검증
         try:
@@ -94,7 +149,6 @@ class VideoUploadView(APIView):
                 },
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
-
         if duration <= 0:
             return Response(
                 {
@@ -144,8 +198,9 @@ class VideoUploadView(APIView):
             file_path=relative_file_path,
             thumbnail_path="",
             file_size=uploaded_file.size,
+            weather=Video.Weather.CLEAR,  # 날씨 정보 처리해야됨
             duration=duration,
-            weather="",
+            date=timezone.now(),   # 영상 촬영일 정보 처리해야됨
             fish_count=0,
             skygazer_count=0,
             status=Video.Status.PROCESSING,
@@ -153,21 +208,19 @@ class VideoUploadView(APIView):
 
         # FastAPI 분석 API 호출
         try:
-            fastapi_result = call_fastapi_track(absolute_file_path)
+            fastapi_result = call_fastapi(absolute_file_path)
 
             if fastapi_result.get("status") != "success":
-                raise RuntimeError("FastAPI 분석 결과 status가 success가 아닙니다.")
+                raise RuntimeError("FastAPI 분석 결과가 success가 아닙니다.")
 
             fish_count = int(fastapi_result.get("fish_count") or 0)
-            skygazer_count = extract_skygazer_count(fastapi_result)
+            skygazer_count = skygazer_count = int(fastapi_result.get("skygazer_count") or 0)
 
             thumbnail_path = fastapi_result.get("thumbnail_path") or ""
-            weather = fastapi_result.get("weather") or ""
 
             video.fish_count = fish_count
             video.skygazer_count = skygazer_count
             video.thumbnail_path = thumbnail_path
-            video.weather = weather
             video.status = Video.Status.COMPLETED
 
             video.save(
@@ -175,17 +228,22 @@ class VideoUploadView(APIView):
                     "fish_count",
                     "skygazer_count",
                     "thumbnail_path",
-                    "weather",
                     "status",
                     "updated_at",
                 ]
             )
+            save_detected_times(video, fastapi_result)
 
             return Response(
                 {
                     "id": video.id,
                     "status": video.status,
-                    "message": "영상 업로드 및 분석이 완료되었습니다."
+                    "message": "영상 업로드 및 분석이 완료되었습니다.",
+                    "result": {
+                        "fishCount": video.fish_count,
+                        "skygazerCount": video.skygazer_count,
+                        "thumbnailPath": video.thumbnail_path,
+                    },
                 },
                 status=drf_status.HTTP_201_CREATED,
             )
