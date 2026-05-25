@@ -19,7 +19,7 @@ from dotenv import load_dotenv
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 load_dotenv(BASE_DIR / '.env')
-FAST_BASE_URL = os.getenv('FAST_BASE_URL', 'http://localhost:8000')
+FAST_BASE_URL = os.getenv('FAST_BASE_URL', 'http://localhost:8002')
 
 # Quick-start development settings - unsuitable for production
 # See https://docs.djangoproject.com/en/5.2/howto/deployment/checklist/
@@ -44,7 +44,7 @@ INSTALLED_APPS = [
 
     'rest_framework',
     'analysis',
-    'video', 
+    'videos', 
 ]
 
 MIDDLEWARE = [
