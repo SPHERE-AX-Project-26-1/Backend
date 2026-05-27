@@ -10,7 +10,9 @@ class Region(models.Model):
 
     id = models.BigAutoField(primary_key=True)
 
-    region_name = models.CharField(max_length=100)
+    name = models.CharField(max_length=100)
+
+    address = models.CharField(max_length=100)
 
     latitude = models.DecimalField(
         max_digits=10,
@@ -34,7 +36,7 @@ class Region(models.Model):
         db_table = "REGION"
 
     def __str__(self):
-        return self.region_name
+        return self.name
 
 
 class Video(models.Model):
