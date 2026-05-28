@@ -1,6 +1,12 @@
+# Python / Django
 __pycache__/
 *.pyc
-.venv/
+
+db.sqlite3
+videos/
+
 .env
+.venv/
+venv311
 
 media/
