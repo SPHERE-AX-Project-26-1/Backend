@@ -26,13 +26,3 @@ class SystemLog(models.Model):
     def __str__(self):
         return f"{self.event_type} - {self.created_at}"        
 
-class Basin(models.Model):
-    name = models.CharField(max_length=100)  # 유역명
-    region = models.CharField(max_length=100)  # 지역
-    latitude = models.FloatField()
-    longitude = models.FloatField()
-    severity = models.CharField(max_length=10, default="LOW")  # 위험도
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    def __str__(self):
-        return self.name
