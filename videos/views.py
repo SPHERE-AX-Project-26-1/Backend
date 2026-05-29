@@ -10,6 +10,9 @@ from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
+from datetime import datetime
+from django.db import transaction
+from django.utils import timezone
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -82,6 +85,62 @@ def convert_to_int_seconds(value, default=0):
         return int(round(float(value)))
     except (TypeError, ValueError):
         return default
+
+def format_date(value):
+    if value is None:
+        return ""
+
+    if isinstance(value, datetime) and timezone.is_aware(value):
+        value = timezone.localtime(value)
+
+    return value.strftime("%Y-%m-%d")
+
+def format_datetime_minute(value):
+    if value is None:
+        return ""
+
+    if isinstance(value, datetime) and timezone.is_aware(value):
+        value = timezone.localtime(value)
+
+    return value.strftime("%Y-%m-%d %H:%M")
+
+def format_duration(seconds):
+    if seconds is None:
+        return ""
+
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        return ""
+
+    minutes, remain_seconds = divmod(seconds, 60)
+    if minutes > 0:
+        return f"{minutes}분 {remain_seconds}초"
+
+    return f"{remain_seconds}초"
+
+def get_uploader_name(user):
+    if user is None:
+        return ""
+
+    if not (hasattr(user, "name") and user.name):
+        raise ValueError("User 객체에 name 속성이 없거나 비어 있습니다.")
+
+    return user.name
+
+def _positive_int(value, default, max_value=None):
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = default
+
+    if number < 1:
+        number = default
+
+    if max_value is not None:
+        number = min(number, max_value)
+
+    return number
     
 
 # 개체 탐지 시간 DB에 저장하는 함수
@@ -371,3 +430,186 @@ class VideoUploadView(APIView):
                 },
                 status=drf_status.HTTP_502_BAD_GATEWAY,
             )
+
+
+def serialize_video_for_list(video: Video):
+    region = video.region
+
+    return {
+        "id": video.id,
+        "filename": video.title,
+        "date": format_date(video.date),
+        "uploadDate": format_date(video.created_at),
+        "uploadTime": format_datetime_minute(video.created_at),
+        "name": region.name,
+        "latitude": float(region.latitude) if region.latitude is not None else None,
+        "longitude": float(region.longitude) if region.longitude is not None else None,
+        "skygazerCount": int(video.skygazer_count or 0),
+        "totalCount": int(video.fish_count or 0),
+        "weather": video.weather,
+        "duration": format_duration(video.duration),
+        "uploader": get_uploader_name(video.user),
+    }
+
+def create_video_delete_log(video: Video, request):
+    pass
+
+def get_safe_media_file_path(relative_or_absolute_path):
+    if not relative_or_absolute_path:
+        return None
+
+    media_root = Path(settings.MEDIA_ROOT).resolve()
+    file_path = Path(relative_or_absolute_path)
+
+    if not file_path.is_absolute():
+        file_path = media_root / file_path
+
+    file_path = file_path.resolve()
+
+    # MEDIA_ROOT 바깥 파일 삭제 방지
+    if file_path != media_root and media_root not in file_path.parents:
+        return None
+
+    return file_path
+
+def delete_local_file_safely(relative_or_absolute_path):
+    file_path = get_safe_media_file_path(relative_or_absolute_path)
+
+    if file_path is None:
+        return
+
+    try:
+        if file_path.exists() and file_path.is_file():
+            file_path.unlink()
+    except OSError:
+        pass
+
+class VideoListDeleteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        videos = Video.objects.select_related("region", "user").all()
+
+        search = request.query_params.get("search", "").strip()
+        region = request.query_params.get("region", "").strip()
+        sort_by = request.query_params.get("sortBy", "date_desc").strip()
+
+        if search:
+            videos = videos.filter(region__name__icontains=search)
+
+        if region:
+            videos = videos.filter(region__name=region)
+
+        if sort_by == "date_asc":
+            videos = videos.order_by("date", "id")
+
+        elif sort_by == "region":
+            videos = videos.order_by("region__name", "-date", "-id")
+
+        else:
+            videos = videos.order_by("-date", "-id")
+
+        total = videos.count()
+
+        page = positive_int(
+            request.query_params.get("page"),
+            default=1,
+        )
+
+        page_size = positive_int(
+            request.query_params.get("pageSize"),
+            default=8,
+            max_value=100,
+        )
+
+        start = (page - 1) * page_size
+        end = start + page_size
+
+        items = [
+            serialize_video_for_list(video)
+            for video in videos[start:end]
+        ]
+
+        return Response(
+            {
+                "total": total,
+                "items": items,
+            },
+            status=drf_status.HTTP_200_OK,
+        )
+
+    def delete(self, request):
+        ids = request.data.get("ids")
+
+        if not isinstance(ids, list) or len(ids) == 0:
+            return Response(
+                {
+                    "message": "삭제할 영상 ID 배열이 필요합니다."
+                },
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            ids = [int(video_id) for video_id in ids]
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "message": "ids는 정수 배열이어야 합니다."
+                },
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 중복 제거
+        ids = list(dict.fromkeys(ids))
+
+        videos = list(Video.objects.filter(id__in=ids).select_related("region", "user"))
+        found_ids = {video.id for video in videos}
+        missing_ids = [video_id for video_id in ids if video_id not in found_ids]
+
+        if missing_ids:
+            return Response(
+                {
+                    "message": "존재하지 않는 영상입니다."
+                },
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+
+        file_paths_to_delete = []
+
+        for video in videos:
+            if video.file_path:
+                file_paths_to_delete.append(video.file_path)
+
+            if video.thumbnail_path:
+                file_paths_to_delete.append(video.thumbnail_path)
+
+        with transaction.atomic():
+            for video in videos:
+                create_video_delete_log(video, request)
+                video.delete()
+
+        for file_path in file_paths_to_delete:
+            delete_local_file_safely(file_path)
+
+        return Response(status=drf_status.HTTP_200_OK)
+
+
+class VideoRegionListView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        names = (
+            Region.objects
+            .exclude(name__isnull=True)
+            .exclude(name="")
+            .values_list("name", flat=True)
+            .distinct()
+            .order_by("name")
+        )
+
+        return Response(
+            {
+                "name": list(names)
+            },
+            status=drf_status.HTTP_200_OK,
+        )

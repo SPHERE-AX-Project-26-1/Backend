@@ -50,7 +50,7 @@ class Video(models.Model):
 
     duration = models.PositiveIntegerField(validators=[MinValueValidator(1)])
 
-    date = models.DateTimeField()
+    date = models.DateField()
 
     fish_count = models.BigIntegerField(default=0)
     skygazer_count = models.BigIntegerField(default=0)
