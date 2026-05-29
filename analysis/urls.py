@@ -6,9 +6,9 @@ urlpatterns = [
     path("ping/", ping),
 
     # videos
-    path('videos', views.video_list),
-    path('videos/delete', views.video_delete),
-    path('videos/<int:video_id>/', views.video_detail),
+    # path('videos', views.video_list),
+    # path('videos/delete', views.video_delete),
+    # path('videos/<int:video_id>/', views.video_detail),
 
     # logs
     path('logs/', views.log_list),

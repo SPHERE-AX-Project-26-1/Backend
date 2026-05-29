@@ -1,12 +1,12 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from .models import Basin
+from .models import Region
 
 @api_view(['POST'])
-def create_basin(request):
+def create_region(request):
     data = request.data
 
-    basin = Basin.objects.create(
+    region = Region.objects.create(
         name=data.get('name'),
         address=data.get('address'),
         latitude=data.get('latitude'),
@@ -14,71 +14,71 @@ def create_basin(request):
         risk_level=data.get('risk_level', 'LOW')
     )
 
-    return Response({"id": basin.id})
+    return Response({"id": region.id})
 
 @api_view(['GET'])
-def basin_list(request):
-    basins = Basin.objects.all()
+def region_list(request):
+    regions = Region.objects.all()
 
     # 검색
     name = request.GET.get('name')
     address = request.GET.get('address')
 
     if name:
-        basins = basins.filter(name__icontains=name)
+        regions = regions.filter(name__icontains=name)
     if address:
-        basins = basins.filter(address__icontains=address)
+        regions = regions.filter(address__icontains=address)
 
     # 정렬
     sort = request.GET.get('sort')
     if sort == 'latest':
-        basins = basins.order_by('-created_at')
+        regions = regions.order_by('-created_at')
 
     data = [
         {
-            "id": b.id,
-            "name": b.name,
-            "address": b.address,
-            "latitude": b.latitude,
-            "longitude": b.longitude,
-            "risk_level": b.risk_level
+            "id": r.id,
+            "name": r.name,
+            "address": r.address,
+            "latitude": r.latitude,
+            "longitude": r.longitude,
+            "risk_level": r.risk_level
         }
-        for b in basins
+        for r in regions
     ]
 
-    return Response({"basins": data})
+    return Response({"regions": data})
 
 @api_view(['GET'])
-def basin_detail(request, basin_id):
-    basin = Basin.objects.get(id=basin_id)
+def region_detail(request, region_id):
+    region = Region.objects.get(id=region_id)
 
     return Response({
-        "id": basin.id,
-        "name": basin.name,
-        "address": basin.address,
-        "latitude": basin.latitude,
-        "longitude": basin.longitude,
-        "risk_level": basin.risk_level
+        "id": region.id,
+        "name": region.name,
+        "address": region.address,
+        "latitude": region.latitude,
+        "longitude": region.longitude,
+        "risk_level": region.risk_level
     })
 
 @api_view(['PUT'])
-def update_basin(request, basin_id):
-    basin = Basin.objects.get(id=basin_id)
+def update_region(request, region_id):
+    region = Region.objects.get(id=region_id)
     data = request.data
 
-    basin.name = data.get('name', basin.name)
-    basin.address = data.get('address', basin.address)
-    basin.latitude = data.get('latitude', basin.latitude)
-    basin.longitude = data.get('longitude', basin.longitude)
-    basin.risk_level = data.get('risk_level', basin.risk_level)
+    region.name = data.get('name', region.name)
+    region.address = data.get('address', region.address)
+    region.latitude = data.get('latitude', region.latitude)
+    region.longitude = data.get('longitude', region.longitude)
+    region.risk_level = data.get('risk_level', region.risk_level)
 
-    basin.save()
+    region.save()
 
     return Response({"success": True})
 
 @api_view(['DELETE'])
-def delete_basin(request, basin_id):
-    basin = Basin.objects.get(id=basin_id)
-    basin.delete()
+def delete_region(request, region_id):
+    region = Region.objects.get(id=region_id)
+    region.delete()
 
     return Response({"success": True})
