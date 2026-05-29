@@ -9,19 +9,23 @@ import uuid
 from django.conf import settings
 from django.core.files.storage import FileSystemStorage
 from django.shortcuts import get_object_or_404
+from django.utils.dateparse import parse_date
 
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status as drf_status
 from rest_framework.parsers import MultiPartParser, FormParser
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.exceptions import ValidationError
 import requests
 
-from .models import Region, Video, DetectedTime
+from .models import Video, DetectedTime
+from regions.models import Region
 
 
 MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024
 ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi"}
+OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
 def call_fastapi(file_path: str) -> dict:
     url = f"{settings.FAST_BASE_URL.rstrip('/')}/api/analyze"
@@ -108,6 +112,71 @@ def save_detected_times(video: Video, fastapi_result: dict):
     if detected_time_objects:
         DetectedTime.objects.bulk_create(detected_time_objects)
 
+def parse_weather_code_to_enum(weather_code: int) -> str:
+
+    if weather_code == 0:
+        return "CLEAR"
+
+    if weather_code in {1, 2, 3}:
+        return "CLOUDY"
+
+    if weather_code in {45, 48}:
+        return "FOG"
+
+    if weather_code in {71, 73, 75, 77, 85, 86}:
+        return "SNOW"
+
+    if weather_code in {51, 53, 55, 56, 57, 61, 63, 65, 66, 
+        67, 80, 81, 82, 95, 96, 99}:
+        return "RAIN"
+
+    return "CLOUDY"
+
+def fetch_weather_by_date_and_location(target_date, latitude, longitude) -> str:
+
+    date_str = target_date.isoformat()
+
+    params = {
+        "latitude": float(latitude),
+        "longitude": float(longitude),
+        "start_date": date_str,
+        "end_date": date_str,
+        "daily": "weather_code",
+        "timezone": "Asia/Seoul",
+    }
+
+    try:
+        response = requests.get(
+            OPEN_METEO_ARCHIVE_URL,
+            params=params,
+            timeout=5,
+        )
+        response.raise_for_status()
+
+    except requests.RequestException as e:
+        raise ValidationError({
+            "weather": f"날씨 API 호출에 실패했습니다: {str(e)}"
+        })
+
+    data = response.json()
+
+    try:
+        weather_codes = data["daily"]["weather_code"]
+        weather_code = weather_codes[0]
+
+    except (KeyError, IndexError, TypeError):
+        raise ValidationError({
+            "weather": "날씨 API 응답에서 weather_code를 찾을 수 없습니다."
+        })
+
+    if weather_code is None:
+        raise ValidationError({
+            "weather": "해당 날짜와 위치의 날씨 데이터가 비어 있습니다."
+        })
+
+    return parse_weather_code_to_enum(int(weather_code))
+
+
 
 class VideoUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
@@ -117,9 +186,10 @@ class VideoUploadView(APIView):
         uploaded_file = request.FILES.get("file")
         river_id = request.data.get("riverId")
         duration = request.data.get("duration")
+        date = request.data.get("date")
 
         # 필수 데이터 검증
-        if uploaded_file is None or river_id in (None, "") or duration in (None, ""):
+        if uploaded_file is None or river_id in (None, "") or duration in (None, "") or date in (None, ""):
             return Response(
                 {
                     "message": "필수 입력값을 확인해주세요."
@@ -157,6 +227,24 @@ class VideoUploadView(APIView):
                 status=drf_status.HTTP_400_BAD_REQUEST,
             )
 
+        # date 파싱 및 검증
+        try:
+            date = parse_date(date)
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "message": "date는 YYYY-MM-DD 형식이어야 합니다. 예: 2026-03-15"
+                },
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+        if date is None:
+            return Response(
+                {
+                    "message": "date는 YYYY-MM-DD 형식이어야 합니다. 예: 2026-03-15"
+                },
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
         # 파일 확장자 검증
         original_file_name = uploaded_file.name
         ext = Path(original_file_name).suffix.lower()
@@ -176,6 +264,23 @@ class VideoUploadView(APIView):
                     "message": "파일 용량이 제한을 초과했습니다."
                 },
                 status=drf_status.HTTP_413_REQUEST_ENTITY_TOO_LARGE,
+            )
+
+        
+        # 날씨 정보 가져오기
+        try:
+            weather = fetch_weather_by_date_and_location(
+                target_date=date,
+                latitude=region.latitude,
+                longitude=region.longitude, 
+            )
+        except ValidationError as e:
+            return Response(
+                {
+                    "message": "날씨 정보를 가져오지 못했습니다.",
+                    "detail": e.detail,
+                },
+                status=drf_status.HTTP_502_BAD_GATEWAY,
             )
 
         save_dir = Path(settings.MEDIA_ROOT) / "video"
@@ -198,9 +303,9 @@ class VideoUploadView(APIView):
             file_path=relative_file_path,
             thumbnail_path="",
             file_size=uploaded_file.size,
-            weather=Video.Weather.CLEAR,  # 날씨 정보 처리해야됨
+            weather=weather,
             duration=duration,
-            date=timezone.now(),   # 영상 촬영일 정보 처리해야됨
+            date=date,
             fish_count=0,
             skygazer_count=0,
             status=Video.Status.PROCESSING,
@@ -214,7 +319,7 @@ class VideoUploadView(APIView):
                 raise RuntimeError("FastAPI 분석 결과가 success가 아닙니다.")
 
             fish_count = int(fastapi_result.get("fish_count") or 0)
-            skygazer_count = skygazer_count = int(fastapi_result.get("skygazer_count") or 0)
+            skygazer_count = int(fastapi_result.get("skygazer_count") or 0)
 
             thumbnail_path = fastapi_result.get("thumbnail_path") or ""
 
@@ -238,12 +343,13 @@ class VideoUploadView(APIView):
                 {
                     "id": video.id,
                     "status": video.status,
+                    "skygazerCount": video.skygazer_count,
                     "message": "영상 업로드 및 분석이 완료되었습니다.",
-                    "result": {
-                        "fishCount": video.fish_count,
-                        "skygazerCount": video.skygazer_count,
-                        "thumbnailPath": video.thumbnail_path,
-                    },
+                    # "result": {
+                    #     "fishCount": video.fish_count,
+                    #     "skygazerCount": video.skygazer_count,
+                    #     "thumbnailPath": video.thumbnail_path,
+                    # },
                 },
                 status=drf_status.HTTP_201_CREATED,
             )
@@ -262,7 +368,6 @@ class VideoUploadView(APIView):
                     "id": video.id,
                     "status": video.status,
                     "message": "AI 영상 분석에 실패했습니다.",
-                    "detail": str(e),
                 },
                 status=drf_status.HTTP_502_BAD_GATEWAY,
             )

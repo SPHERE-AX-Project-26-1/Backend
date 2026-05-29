@@ -13,7 +13,7 @@ urlpatterns = [
     path('api/', include('analysis.urls')),
     path("api/videos/", include('videos.urls')),
     path('api/auth/', include('accounts.urls')),
-    path('api/basins/', include('regions.urls')),
+    path('api/rivers/', include('regions.urls')),
 ]
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
