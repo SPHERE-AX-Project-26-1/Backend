@@ -48,6 +48,7 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',  
     'corsheaders',
     'analysis',
+    'stats',
     'videos', 
     'accounts',
     'regions',
