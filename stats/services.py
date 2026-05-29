@@ -2,7 +2,6 @@ from datetime import date
 from django.db.models import BigIntegerField, Sum, Count, Value, IntegerField
 from django.db.models.functions import Coalesce, TruncMonth
 
-# video 모델 merge 필요
 from videos.models import Video
 
 
