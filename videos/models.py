@@ -1,6 +1,7 @@
 from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator
+from regions.models import Region
 
 
 class Video(models.Model):

@@ -1,5 +1,5 @@
 from django.urls import path
-from .views import VideoUploadView
+from .views import VideoUploadView, VideoListDeleteView, VideoRegionListView
 
 urlpatterns = [
     path("", VideoListDeleteView.as_view(), name="video-list-delete"),

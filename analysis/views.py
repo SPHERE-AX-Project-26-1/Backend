@@ -1,9 +1,10 @@
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
+from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework import status
 from django.core.paginator import Paginator
 from django.http import JsonResponse
-from .models import Video
-from .models import SystemLog
+from .models import Event
 import json
 from django.views.decorators.csrf import csrf_exempt
 from django.db.models import Avg
@@ -13,8 +14,6 @@ from django.utils import timezone
 @api_view(['GET'])
 def ping(request):
     return Response({"message": "pong"})
-
-
 
 # def video_list(request):
 #     videos = Video.objects.all()
@@ -107,21 +106,32 @@ def ping(request):
 #         "uploader": getattr(v, "uploader", "")
 #     })
 
+@api_view(['GET'])
 def log_list(request):
-    logs = SystemLog.objects.all().order_by('-created_at')
-
-    data = []
+    logs = Event.objects.all().order_by('-created_at')
+    items = []
 
     for log in logs:
-        data.append({
-            "id": log.id,
-            "datetime": log.created_at.strftime("%Y-%m-%d %H:%M"),
-            "eventType": log.event_type,
-            "detail": log.message,
-            "user": "시스템"
-        })
+        created_at = timezone.localtime(log.created_at)
 
-    return JsonResponse({
-        "items": data
-    })
+        if log.user is None:
+            username = "시스템"
+        else:
+            username = getattr(log.user, "username", None) or str(log.user)
 
+        items.append(
+            {
+                "id": log.id,
+                "dateTime": created_at.strftime("%Y-%m-%d %H:%M"),
+                "eventType": log.type,
+                "detail": log.detail,
+                "user": username,
+            }
+        )
+
+    return Response(
+        {
+            "items": items
+        },
+        status=status.HTTP_200_OK,
+    )
