@@ -7,6 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 from datetime import datetime
 from django.db import transaction
+from django.db.models import Avg, Count
 from django.utils import timezone
 
 from rest_framework.views import APIView
@@ -422,7 +423,7 @@ class VideoUploadView(APIView):
                     "id": video.id,
                     "status": video.status,
                     "skygazerCount": video.skygazer_count,
-                    "message": "영상 업로드 및 분석이 완료되었습니다.",
+                    "message": "영상 분석이 완료되었습니다.",
                     # "result": {
                     #     "fishCount": video.fish_count,
                     #     "skygazerCount": video.skygazer_count,
@@ -450,7 +451,7 @@ class VideoUploadView(APIView):
                 {
                     "id": video.id,
                     "status": video.status,
-                    "message": "AI 영상 분석에 실패했습니다.",
+                    "message": "영상 분석에 실패했습니다.",
                 },
                 status=drf_status.HTTP_502_BAD_GATEWAY,
             )
@@ -512,7 +513,7 @@ class VideoListDeleteView(APIView):
         videos = Video.objects.select_related("region", "user").all()
 
         search = request.query_params.get("search", "").strip()
-        region = request.query_params.get("region", "").strip()
+        region = request.query_params.get("name", "").strip()
         sort_by = request.query_params.get("sortBy", "date_desc").strip()
 
         if search:
@@ -609,7 +610,7 @@ class VideoListDeleteView(APIView):
                 Event.objects.create(
                     user=request.user,
                     type=Event.Type.DELETE,
-                    detail=f"영상 삭제됨 (id: {video.id}, title: {video.title})"
+                    detail=f"{video.title} 삭제"
                 )
                 video.delete()
 
@@ -620,8 +621,6 @@ class VideoListDeleteView(APIView):
 
 
 class VideoRegionListView(APIView):
-    permission_classes = [IsAuthenticated]
-
     def get(self, request):
         names = (
             Region.objects
@@ -635,6 +634,96 @@ class VideoRegionListView(APIView):
         return Response(
             {
                 "name": list(names)
+            },
+            status=drf_status.HTTP_200_OK,
+        )
+
+
+def format_range_time(seconds):
+    try:
+        seconds = int(seconds)
+    except (TypeError, ValueError):
+        seconds = 0
+
+    minutes, remain_seconds = divmod(seconds, 60)
+    return f"{minutes}:{remain_seconds:02d}"
+
+
+def serialize_detection_ranges(video: Video):
+    rows = (
+        DetectedTime.objects
+        .filter(video=video)
+        .values("start_time", "end_time")
+        .annotate(count=Count("id"))
+        .order_by("start_time", "end_time")
+    )
+
+    return [
+        {
+            "range": f"{format_range_time(row['start_time'])} ~ {format_range_time(row['end_time'])}",
+            "count": int(row["count"]),
+        }
+        for row in rows
+    ]
+
+
+def get_rounded_average(queryset, field_name):
+    avg_value = queryset.aggregate(avg=Avg(field_name))["avg"]
+
+    if avg_value is None:
+        return 0
+
+    return int(round(float(avg_value)))
+
+
+class VideoDetailView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, video_id):
+        try:
+            video = (
+                Video.objects
+                .select_related("region", "user")
+                .get(id=video_id)
+            )
+
+        except Video.DoesNotExist:
+            return Response(
+                {
+                    "message": "존재하지 않는 영상입니다."
+                },
+                status=drf_status.HTTP_404_NOT_FOUND,
+            )
+        
+        current_year = timezone.localdate().year
+
+        region_avg = get_rounded_average(
+            Video.objects.filter(region=video.region),
+            "skygazer_count",
+        )
+
+        year_avg = get_rounded_average(
+            Video.objects.filter(created_at__year=current_year),
+            "skygazer_count",
+        )
+
+        return Response(
+            {
+                "id": video.id,
+                "filename": video.title,
+                "date": format_date(video.date),
+                "uploadTime": format_datetime_minute(video.created_at),
+                "name": video.region.name,
+                "latitude": float(video.region.latitude) if video.region.latitude is not None else None,
+                "longitude": float(video.region.longitude) if video.region.longitude is not None else None,
+                "skygazerCount": int(video.skygazer_count or 0),
+                "totalCount": int(video.fish_count or 0),
+                "weather": video.weather,
+                "duration": format_duration(video.duration),
+                "detectionRanges": serialize_detection_ranges(video),
+                "regionAvg": region_avg,
+                "yearAvg": year_avg,
+                "uploader": get_uploader_name(video.user),
             },
             status=drf_status.HTTP_200_OK,
         )
