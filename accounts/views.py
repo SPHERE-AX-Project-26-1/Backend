@@ -10,9 +10,8 @@ def signup(request):
     user_id = request.data.get("userId")
     password = request.data.get("password")
     name = request.data.get("name", "")
-    email = request.data.get("email", "")
 
-    if not user_id or not password or not name or not email:
+    if not user_id or not password or not name:
         return Response(
             {"message": "입력값을 확인해주세요."},
             status=status.HTTP_400_BAD_REQUEST
@@ -27,7 +26,6 @@ def signup(request):
     User.objects.create_user(
         username=user_id,
         password=password,
-        email=email,
         first_name=name,
     )
 
@@ -61,7 +59,6 @@ def login(request):
         "user": {
             "userId": user.username,
             "name": user.first_name,
-            "email": user.email
         }
     }, status=status.HTTP_200_OK)
 
