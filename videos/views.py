@@ -1,9 +1,4 @@
-from time import timezone
-
-from django.shortcuts import render
-
 from pathlib import Path
-import os
 import uuid
 
 from django.conf import settings
@@ -24,6 +19,7 @@ import requests
 
 from .models import Video, DetectedTime
 from regions.models import Region
+from analysis.models import Event
 
 
 MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024
@@ -123,12 +119,23 @@ def get_uploader_name(user):
     if user is None:
         return ""
 
-    if not (hasattr(user, "name") and user.name):
-        raise ValueError("User 객체에 name 속성이 없거나 비어 있습니다.")
+    if hasattr(user, "name") and user.name:
+        return user.name
 
-    return user.name
+    if hasattr(user, "get_full_name"):
+        full_name = user.get_full_name()
+        if full_name:
+            return full_name
 
-def _positive_int(value, default, max_value=None):
+    if hasattr(user, "username") and user.username:
+        return user.username
+
+    if hasattr(user, "email") and user.email:
+        return user.email
+
+    return str(user)
+
+def positive_int(value, default, max_value=None):
     try:
         number = int(value)
     except (TypeError, ValueError):
@@ -370,6 +377,12 @@ class VideoUploadView(APIView):
             status=Video.Status.PROCESSING,
         )
 
+        Event.objects.create(
+            user=request.user,
+            type=Event.Type.UPLOAD,
+            detail=f"영상 업로드됨 (id: {video.id}, title: {video.title})"
+        )
+
         # FastAPI 분석 API 호출
         try:
             fastapi_result = call_fastapi(absolute_file_path)
@@ -398,6 +411,12 @@ class VideoUploadView(APIView):
             )
             save_detected_times(video, fastapi_result)
 
+            Event.objects.create(
+                user=request.user,
+                type=Event.Type.ANALYSIS,
+                detail=f"영상 분석 완료 (id: {video.id}, title: {video.title}, fish_count: {fish_count}, skygazer_count: {skygazer_count})"
+            )
+
             return Response(
                 {
                     "id": video.id,
@@ -421,6 +440,11 @@ class VideoUploadView(APIView):
                     "updated_at",
                 ]
             )
+            Event.objects.create(
+                user=request.user,
+                type=Event.Type.ANALYSIS,
+                detail=f"영상 분석 실패 (id: {video.id}, title: {video.title}, error: {str(e)})"
+            )  
 
             return Response(
                 {
@@ -450,9 +474,6 @@ def serialize_video_for_list(video: Video):
         "duration": format_duration(video.duration),
         "uploader": get_uploader_name(video.user),
     }
-
-def create_video_delete_log(video: Video, request):
-    pass
 
 def get_safe_media_file_path(relative_or_absolute_path):
     if not relative_or_absolute_path:
@@ -585,7 +606,11 @@ class VideoListDeleteView(APIView):
 
         with transaction.atomic():
             for video in videos:
-                create_video_delete_log(video, request)
+                Event.objects.create(
+                    user=request.user,
+                    type=Event.Type.DELETE,
+                    detail=f"영상 삭제됨 (id: {video.id}, title: {video.title})"
+                )
                 video.delete()
 
         for file_path in file_paths_to_delete:
