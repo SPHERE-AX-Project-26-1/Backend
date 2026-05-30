@@ -125,7 +125,7 @@ def log_list(request):
                 "dateTime": created_at.strftime("%Y-%m-%d %H:%M"),
                 "eventType": log.type,
                 "detail": log.detail,
-                "user": username,
+                "username": username,
             }
         )
 
