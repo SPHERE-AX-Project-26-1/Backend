@@ -122,10 +122,10 @@ def log_list(request):
         items.append(
             {
                 "id": log.id,
-                "dateTime": created_at.strftime("%Y-%m-%d %H:%M"),
+                "datetime": created_at.strftime("%Y-%m-%d %H:%M"),
                 "eventType": log.type,
                 "detail": log.detail,
-                "user": username,
+                "username": username,
             }
         )
 
