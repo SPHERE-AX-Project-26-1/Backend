@@ -1,35 +1,37 @@
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 from rest_framework import status
-from django.contrib.auth.models import User
-from rest_framework_simplejwt.tokens import RefreshToken
+from .models import User
+import jwt
+from django.conf import settings
+from datetime import datetime, timedelta
+
 
 # 회원가입
 @api_view(['POST'])
 def signup(request):
-    user_id = request.data.get("userId")
+    user_id = request.data.get("user_id")
     password = request.data.get("password")
-    name = request.data.get("name", "")
-    email = request.data.get("email", "")
+    username = request.data.get("username")  # 유저 이름
 
-    if not user_id or not password or not name or not email:
+    if not user_id or not password or not username:
         return Response(
             {"message": "입력값을 확인해주세요."},
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    if User.objects.filter(username=user_id).exists():
+    if User.objects.filter(user_id=user_id).exists():
         return Response(
             {"message": "이미 사용 중인 아이디입니다."},
             status=status.HTTP_409_CONFLICT
         )
 
-    User.objects.create_user(
-        username=user_id,
-        password=password,
-        email=email,
-        first_name=name,
+    user = User(
+        user_id=user_id,
+        username=username,
     )
+    user.set_password(password)
+    user.save()
 
     return Response(status=status.HTTP_201_CREATED)
 
@@ -37,11 +39,11 @@ def signup(request):
 # 로그인
 @api_view(['POST'])
 def login(request):
-    user_id = request.data.get("userId")
+    user_id = request.data.get("user_id")
     password = request.data.get("password")
 
     try:
-        user = User.objects.get(username=user_id)
+        user = User.objects.get(user_id=user_id)
     except User.DoesNotExist:
         return Response(
             {"message": "아이디 또는 비밀번호가 올바르지 않습니다."},
@@ -54,14 +56,20 @@ def login(request):
             status=status.HTTP_401_UNAUTHORIZED
         )
 
-    refresh = RefreshToken.for_user(user)
+    payload = {
+        "id": user.id,
+        "user_id": user.user_id,
+        "username": user.username,
+        "exp": datetime.utcnow() + timedelta(hours=1),
+    }
+
+    token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
 
     return Response({
-        "token": str(refresh.access_token),
+        "token": token,
         "user": {
-            "userId": user.username,
-            "name": user.first_name,
-            "email": user.email
+            "user_id": user.user_id,
+            "username": user.username,
         }
     }, status=status.HTTP_200_OK)
 
@@ -69,7 +77,7 @@ def login(request):
 # 아이디 중복 체크
 @api_view(['GET'])
 def check_username(request):
-    user_id = request.GET.get("userId", "").strip()
+    user_id = request.GET.get("user_id", "").strip()
 
     if not user_id:
         return Response(
@@ -77,10 +85,9 @@ def check_username(request):
             status=status.HTTP_400_BAD_REQUEST
         )
 
-    exists = User.objects.filter(username=user_id).exists()
+    exists = User.objects.filter(user_id=user_id).exists()
 
     return Response(
         {"available": not exists},
         status=status.HTTP_200_OK
     )
-
