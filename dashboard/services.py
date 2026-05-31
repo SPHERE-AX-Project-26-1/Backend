@@ -11,7 +11,8 @@ from django.db.models.functions import Coalesce
 from django.utils import timezone
 
 # video 모델 merge 필요
-from videos.models import Video, Region
+from videos.models import Video
+from regions.models import Region
 
 
 RISK_DB_TO_LABEL = {
@@ -24,12 +25,23 @@ RISK_LABEL_TO_DB = {
     "보통": Region.RiskLevel.LOW,
     "주의": Region.RiskLevel.MEDIUM,
     "위험": Region.RiskLevel.HIGH,
+    "LOW": Region.RiskLevel.LOW,
+    "MEDIUM": Region.RiskLevel.MEDIUM,
+    "HIGH": Region.RiskLevel.HIGH,
 }
 
 STATUS_BY_RISK = {
     Region.RiskLevel.LOW: "정상",
     Region.RiskLevel.MEDIUM: "모니터링 필요",
     Region.RiskLevel.HIGH: "즉시 점검 필요",
+}
+
+WEATHER_DB_TO_LABEL = {
+    Video.Weather.CLEAR: "맑음",
+    Video.Weather.CLOUDY: "흐림",
+    Video.Weather.RAIN: "비",
+    Video.Weather.SNOW: "눈",
+    Video.Weather.FOG: "안개",
 }
 
 
@@ -44,6 +56,49 @@ def get_total_skygazer_count(qs):
             output_field=BigIntegerField(),
         )
     )["total"]
+
+def format_date(value):
+    if value is None:
+        return ""
+
+    if timezone.is_aware(value):
+        value = timezone.localtime(value)
+
+    return value.strftime("%Y-%m-%d")
+
+
+def format_datetime_minute(value):
+    if value is None:
+        return ""
+
+    if timezone.is_aware(value):
+        value = timezone.localtime(value)
+
+    return value.strftime("%Y-%m-%d %H:%M")
+
+
+def format_duration(seconds):
+    if seconds is None:
+        return ""
+
+    seconds = int(seconds)
+    minutes, remain_seconds = divmod(seconds, 60)
+
+    if minutes > 0:
+        return f"{minutes}분 {remain_seconds}초"
+
+    return f"{remain_seconds}초"
+
+def validate_risk_param(risk):
+    if risk in (None, ""):
+        return None
+
+    risk = str(risk).strip()
+
+    if risk not in RISK_LABEL_TO_DB:
+        raise ValueError("위험도 값이 올바르지 않습니다.")
+
+    return RISK_LABEL_TO_DB[risk]
 
 def get_dashboard_summary():
     completed_videos = get_completed_video_queryset()
@@ -64,34 +119,14 @@ def get_dashboard_summary():
         risk_level=Region.RiskLevel.HIGH
     ).count()
 
-    total_detected_count = get_total_skygazer_count(completed_videos)
+    total_skygazer_count = get_total_skygazer_count(completed_videos)
 
     return {
         "totalRiverCount": total_river_count,
         "detectedRiverCount": detected_river_count,
         "dangerRiverCount": danger_river_count,
-        "totalDetectedCount": int(total_detected_count),
+        "totalSkygazerCount": int(total_skygazer_count or 0),
     }
-
-
-def validate_risk_param(risk):
-    if risk in (None, ""):
-        return None
-
-    if risk not in RISK_LABEL_TO_DB:
-        raise ValueError("위험도 값이 올바르지 않습니다.")
-
-    return RISK_LABEL_TO_DB[risk]
-
-
-def format_last_date(dt):
-    if dt is None:
-        return ""
-
-    if timezone.is_aware(dt):
-        dt = timezone.localtime(dt)
-
-    return dt.strftime("%Y-%m-%d")
 
 
 def get_regions_with_dashboard_stats():
@@ -101,13 +136,13 @@ def get_regions_with_dashboard_stats():
             region_id=OuterRef("pk"),
             status=Video.Status.COMPLETED,
         )
-        .order_by("-created_at", "-id")
+        .order_by("-updated_at", "-created_at", "-id")
     )
 
     return (
         Region.objects
         .annotate(
-            detect_count=Coalesce(
+            total_skygazer_count=Coalesce(
                 Sum(
                     "videos__skygazer_count",
                     filter=Q(videos__status=Video.Status.COMPLETED),
@@ -116,11 +151,20 @@ def get_regions_with_dashboard_stats():
                 output_field=BigIntegerField(),
             ),
             latest_video_id=Subquery(
-                latest_completed_video.values("id")[:1]
+                latest_completed_video.values("id")[:1],
+                output_field=BigIntegerField(),
             ),
-            latest_video_created_at=Subquery(
-                latest_completed_video.values("created_at")[:1],
+            latest_video_analyzed_at=Subquery(
+                latest_completed_video.values("updated_at")[:1],
                 output_field=DateTimeField(),
+            ),
+            latest_skygazer_count=Coalesce(
+                Subquery(
+                    latest_completed_video.values("skygazer_count")[:1],
+                    output_field=BigIntegerField(),
+                ),
+                Value(0, output_field=BigIntegerField()),
+                output_field=BigIntegerField(),
             ),
         )
     )
@@ -130,16 +174,15 @@ def serialize_river_marker(region):
     risk_label = RISK_DB_TO_LABEL.get(region.risk_level, region.risk_level)
     status_label = STATUS_BY_RISK.get(region.risk_level, "정상")
 
-    latitude = float(region.latitude)
-    longitude = float(region.longitude)
-
     return {
         "id": region.id,
-        "region": region.region_name,
-        "latitude": latitude,
-        "longitude": longitude,
-        "lastDate": format_last_date(region.latest_video_created_at),
-        "detectCount": int(region.detect_count or 0),
+        "name": region.name,
+        "address": region.address,
+        "latitude": float(region.latitude),
+        "longitude": float(region.longitude),
+        "lastAnalyzedAt": format_date(region.latest_video_analyzed_at),
+        "totalSkygazerCount": int(region.total_skygazer_count or 0),
+        "latestSkygazerCount": int(region.latest_skygazer_count or 0),
         "risk": risk_label,
         "status": status_label,
         "latestVideoId": region.latest_video_id,
@@ -163,7 +206,6 @@ def get_dashboard_rivers(risk=None):
         ]
     }
 
-
 def parse_limit(limit):
     if limit in (None, ""):
         return 3
@@ -184,8 +226,8 @@ def serialize_top_river(region):
 
     return {
         "id": region.id,
-        "name": region.region_name,
-        "detectCount": int(region.detect_count or 0),
+        "name": region.name,
+        "totalSkygazerCount": int(region.total_skygazer_count or 0),
         "risk": risk_label,
     }
 
@@ -195,8 +237,8 @@ def get_top_rivers(limit=None):
 
     qs = (
         get_regions_with_dashboard_stats()
-        .filter(detect_count__gt=0)
-        .order_by("-detect_count", "region_name")[:limit]
+        .filter(total_skygazer_count__gt=0)
+        .order_by("-total_skygazer_count", "id")[:limit]
     )
 
     return {

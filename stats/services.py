@@ -137,7 +137,7 @@ def get_top_weather(start_date, end_date):
 
     if not row or total_detected == 0:
         return {
-            "name": "",
+            "weather": "",
             "percentage": 0,
         }
 
@@ -145,7 +145,7 @@ def get_top_weather(start_date, end_date):
     percentage = round((row["count"] / total_detected) * 100)
 
     return {
-        "name": weather_label,
+        "weather": weather_label,
         "percentage": int(percentage),
     }
 
