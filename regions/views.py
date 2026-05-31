@@ -1,7 +1,8 @@
 import pandas as pd
+from django.db.models import Q, Sum
+from videos.models import Video
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
-from django.db.models import Q
 from .models import Region
 
 
@@ -24,21 +25,39 @@ def risk_to_api(value):
     }.get(value, value)
 
 
+def calculate_risk(region, latest_count):
+    if latest_count >= region.danger_threshold:
+        return "HIGH"
+    elif latest_count >= region.caution_threshold:
+        return "MEDIUM"
+    return "LOW"
+
+
 def region_response(r):
+    videos = Video.objects.filter(region=r, status=Video.Status.COMPLETED)
+
+    analysis_count = videos.count()
+    total_skygazer_count = videos.aggregate(total=Sum("skygazer_count"))["total"] or 0
+
+    latest_video = videos.order_by("-date", "-created_at").first()
+    latest_skygazer_count = latest_video.skygazer_count if latest_video else 0
+
+    calculated_risk = calculate_risk(r, latest_skygazer_count)
+
     return {
         "id": r.id,
         "name": r.name,
-        "region": r.address,
+        "address": r.address,
         "latitude": float(r.latitude),
         "longitude": float(r.longitude),
-        "risk": risk_to_api(r.risk_level),
-        "lastAnalyzedAt": None,
+        "risk": risk_to_api(calculated_risk),
+        "lastAnalyzedAt": latest_video.created_at.strftime("%Y-%m-%d %H:%M") if latest_video else None,
         "cautionThreshold": r.caution_threshold,
         "dangerThreshold": r.danger_threshold,
         "createdAt": r.created_at.strftime("%Y-%m-%d") if r.created_at else None,
-        "analysisCount": 0,
-        "totalGanjunchiCount": 0,
-        "latestGanjunchiCount": 0,
+        "analysisCount": analysis_count,
+        "totalGanjunchiCount": total_skygazer_count,
+        "latestGanjunchiCount": latest_skygazer_count,
     }
 
 
@@ -49,11 +68,12 @@ def regions(request):
 
         region = Region.objects.create(
             name=data.get("name"),
-            address=data.get("region"),
+            address=data.get("address"),
             latitude=data.get("latitude"),
             longitude=data.get("longitude"),
             caution_threshold=data.get("cautionThreshold", 5),
             danger_threshold=data.get("dangerThreshold", 10),
+            risk_leve="LOW",
             # risk_level=risk_to_db(data.get("risk", "LOW")),
         )
 
@@ -99,14 +119,11 @@ def region(request, region_id):
         data = request.data
 
         region.name = data.get("name", region.name)
-        region.address = data.get("region", region.address)
+        region.address = data.get("address", region.address)
         region.latitude = data.get("latitude", region.latitude)
         region.longitude = data.get("longitude", region.longitude)
         region.caution_threshold = data.get("cautionThreshold", region.caution_threshold)
         region.danger_threshold = data.get("dangerThreshold", region.danger_threshold)
-
-        if data.get("risk"):
-            region.risk_level = risk_to_db(data.get("risk"))
 
         region.save()
 
@@ -140,7 +157,7 @@ def upload_regions(request):
 
     required_columns = [
         "name",
-        "region",
+        "address",
         "latitude",
         "longitude",
         "cautionThreshold",
@@ -158,7 +175,7 @@ def upload_regions(request):
         try:
             region = Region.objects.create(
                 name=row["name"],
-                address=row["region"],
+                address=row["address"],
                 latitude=row["latitude"],
                 longitude=row["longitude"],
                 caution_threshold=row["cautionThreshold"],
@@ -169,7 +186,7 @@ def upload_regions(request):
             created_items.append({
                 "id": region.id,
                 "name": region.name,
-                "region": region.address,
+                "address": region.address,
             })
 
         except Exception:
