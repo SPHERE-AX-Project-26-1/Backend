@@ -3,7 +3,7 @@ from .views import VideoDetailView, VideoUploadView, VideoListDeleteView, VideoR
 
 urlpatterns = [
     path("", VideoListDeleteView.as_view(), name="video-list-delete"),
-    path("regions/", VideoRegionListView.as_view(), name="video-regions"),
-    path("upload/", VideoUploadView.as_view(), name="video-upload"),
-    path("<int:video_id>/", VideoDetailView.as_view(), name="video-detail"),
+    path("regions", VideoRegionListView.as_view(), name="video-regions"),
+    path("upload", VideoUploadView.as_view(), name="video-upload"),
+    path("<int:video_id>", VideoDetailView.as_view(), name="video-detail"),
 ]

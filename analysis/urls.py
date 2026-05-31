@@ -3,7 +3,7 @@ from .views import ping
 from . import views
 
 urlpatterns = [
-    path("ping/", ping),
+    path("ping", ping),
 
     # videos
     # path('videos', views.video_list),
@@ -11,6 +11,6 @@ urlpatterns = [
     # path('videos/<int:video_id>/', views.video_detail),
 
     # logs
-    path('logs/', views.log_list),
+    path('logs', views.log_list),
 
 ]
