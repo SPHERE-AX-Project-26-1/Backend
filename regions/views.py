@@ -54,7 +54,7 @@ def regions(request):
             longitude=data.get("longitude"),
             caution_threshold=data.get("cautionThreshold", 5),
             danger_threshold=data.get("dangerThreshold", 10),
-            risk_level=risk_to_db(data.get("risk", "LOW")),
+            # risk_level=risk_to_db(data.get("risk", "LOW")),
         )
 
         return Response(region_response(region))
