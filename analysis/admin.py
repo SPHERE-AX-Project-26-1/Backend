@@ -1,5 +1,4 @@
 from django.contrib import admin
-from .models import Video, SystemLog
+from .models import Event
 
-admin.site.register(Video)
-admin.site.register(SystemLog)
+admin.site.register(Event)

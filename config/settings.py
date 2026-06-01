@@ -14,21 +14,25 @@ from dotenv import load_dotenv
 
 import os
 from pathlib import Path
+import os
+from dotenv import load_dotenv
 from datetime import timedelta
-
-load_dotenv()
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
+load_dotenv(BASE_DIR / '.env')
+FASTAPI_BASE_URL = os.getenv('FASTAPI_BASE_URL', 'http://localhost:8002')
 
 # SECURITY WARNING: keep the secret key used in production secret!
 SECRET_KEY = os.getenv("SECRET_KEY")
 
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = os.getenv("DJANGO_DEBUG", "False") == "True"
+DEBUG = os.getenv("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = ["*"]
+
+APP_ENV = os.getenv("APP_ENV", "prod").strip().lower()
 
 # Application definition
 
@@ -44,6 +48,9 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',  
     'corsheaders',
     'analysis',
+    'dashboard',
+    'stats',
+    'videos', 
     'accounts',
     'regions',
 ]
@@ -82,12 +89,27 @@ WSGI_APPLICATION = "config.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.2/ref/settings/#databases
 
+# DATABASES = {
+#     "default": {
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "db.sqlite3",
+#     }
+# }
+
+
 DATABASES = {
     "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
+        "ENGINE": "django.db.backends.mysql",
+        "NAME": os.getenv("DB_NAME"),
+        "USER": os.getenv("DB_USER"),
+        "PASSWORD": os.getenv("DB_PASSWORD"),
+        "HOST": os.getenv("DB_HOST"),
+        "PORT": os.getenv("DB_PORT"),
     }
 }
+
+MEDIA_URL = "/media/"
+MEDIA_ROOT = BASE_DIR / "media"
 
 
 # Password validation
@@ -134,9 +156,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # DRF 인증 설정
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "accounts.authentication.DevJWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
 }
 
 # JWT 설정

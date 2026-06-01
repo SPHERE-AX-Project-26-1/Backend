@@ -102,4 +102,3 @@ def check_username(request):
         {"available": not exists},
         status=status.HTTP_200_OK
     )
-

@@ -2,8 +2,9 @@
 __pycache__/
 *.pyc
 
-db.sqlite3
-videos/
+media/
+
+*.sqlite3
 
 .env
 .venv/
