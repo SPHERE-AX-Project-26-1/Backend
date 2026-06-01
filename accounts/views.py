@@ -1,14 +1,16 @@
-from rest_framework.decorators import api_view
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from .models import User
 import jwt
 from django.conf import settings
 from datetime import datetime, timedelta
+from rest_framework.permissions import AllowAny
 
 
 # 회원가입
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def signup(request):
     user_id = request.data.get("user_id")
     password = request.data.get("password")
@@ -38,6 +40,7 @@ def signup(request):
 
 # 로그인
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def login(request):
     user_id = request.data.get("user_id")
     password = request.data.get("password")
@@ -76,6 +79,7 @@ def login(request):
 
 # 아이디 중복 체크
 @api_view(['GET'])
+@permission_classes([AllowAny])
 def check_username(request):
     user_id = request.GET.get("user_id", "").strip()
 
