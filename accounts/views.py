@@ -106,13 +106,21 @@ def check_username(request):
 
 # 로그아웃
 @api_view(['POST'])
+@permission_classes([AllowAny])
 def logout(request):
-    user = request.user
+    auth = request.headers.get("Authorization", "")
+    username = ""
+    if auth.startswith("Bearer "):
+        try:
+            payload = jwt.decode(auth.split(" ")[1], settings.SECRET_KEY, algorithms=["HS256"])
+            username = payload.get("username", "")
+        except jwt.PyJWTError:
+            pass
 
-    Event.objects.create(
-        user=user,
-        type=Event.Type.LOGOUT,
-        detail=f"{user.username} 로그아웃"
-    )
-
+    if username:
+        Event.objects.create(
+            user=None,
+            type=Event.Type.LOGOUT,
+            detail=f"{username} 로그아웃"
+        )
     return Response(status=status.HTTP_200_OK)
