@@ -7,8 +7,20 @@ from django.http import JsonResponse
 from .models import Event
 import json
 from django.views.decorators.csrf import csrf_exempt
-from django.db.models import Avg
+from django.db.models import Avg, Q
 from django.utils import timezone
+import jwt
+from django.conf import settings
+
+
+def get_token_payload(request):
+    auth = request.headers.get("Authorization", "")
+    if auth.startswith("Bearer "):
+        try:
+            return jwt.decode(auth.split(" ")[1], settings.SECRET_KEY, algorithms=["HS256"])
+        except jwt.PyJWTError:
+            pass
+    return None
 
 # 테스트용 ping
 @api_view(['GET'])
@@ -108,16 +120,23 @@ def ping(request):
 
 @api_view(['GET'])
 def log_list(request):
-    logs = Event.objects.all().order_by('-created_at')
+    payload = get_token_payload(request)
+    if payload is None:
+        return Response({"items": []}, status=status.HTTP_200_OK)
+
+    user_id = payload.get("id")
+    username = payload.get("username", "")
+
+    logs = Event.objects.filter(
+        Q(user_id=user_id) |
+        Q(user__isnull=True, type=Event.Type.LOGIN, detail=f"{username} 로그인") |
+        Q(user__isnull=True, type=Event.Type.LOGOUT, detail=f"{username} 로그아웃")
+    ).order_by('-created_at')
+
     items = []
 
     for log in logs:
         created_at = timezone.localtime(log.created_at)
-
-        if log.user is None:
-            username = "시스템"
-        else:
-            username = getattr(log.user, "username", None) or str(log.user)
 
         items.append(
             {
@@ -125,7 +144,6 @@ def log_list(request):
                 "datetime": created_at.strftime("%Y-%m-%d %H:%M"),
                 "eventType": log.type,
                 "detail": log.detail,
-                "username": username,
             }
         )
 
