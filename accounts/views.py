@@ -102,3 +102,17 @@ def check_username(request):
         {"available": not exists},
         status=status.HTTP_200_OK
     )
+
+
+# 로그아웃
+@api_view(['POST'])
+def logout(request):
+    user = request.user
+
+    Event.objects.create(
+        user=user,
+        type=Event.Type.LOGOUT,
+        detail=f"{user.username} 로그아웃"
+    )
+
+    return Response(status=status.HTTP_200_OK)
