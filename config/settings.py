@@ -18,8 +18,6 @@ import os
 from dotenv import load_dotenv
 from datetime import timedelta
 
-load_dotenv()
-
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -33,6 +31,8 @@ SECRET_KEY = os.getenv("SECRET_KEY")
 DEBUG = os.getenv("DEBUG", "False") == "True"
 
 ALLOWED_HOSTS = ["*"]
+
+APP_ENV = os.getenv("APP_ENV", "prod").strip().lower()
 
 # Application definition
 
@@ -156,9 +156,12 @@ DEFAULT_AUTO_FIELD = "django.db.models.BigAutoField"
 
 # DRF 인증 설정
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    ),
+    "DEFAULT_AUTHENTICATION_CLASSES": [
+        "accounts.authentication.DevJWTAuthentication",
+    ],
+    "DEFAULT_PERMISSION_CLASSES": [
+        "rest_framework.permissions.IsAuthenticated",
+    ],
 }
 
 # JWT 설정

@@ -11,7 +11,6 @@ from .services import (
 
 
 class DashboardSummaryAPIView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         data = get_dashboard_summary()
@@ -19,7 +18,6 @@ class DashboardSummaryAPIView(APIView):
 
 
 class DashboardRiversAPIView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         risk = request.query_params.get("risk")
@@ -36,7 +34,6 @@ class DashboardRiversAPIView(APIView):
 
 
 class DashboardTopRiversAPIView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         limit = request.query_params.get("limit")

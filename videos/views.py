@@ -247,7 +247,6 @@ def fetch_weather_by_date_and_location(target_date, latitude, longitude) -> str:
 
 class VideoUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         uploaded_file = request.FILES.get("file")
@@ -507,7 +506,6 @@ def delete_local_file_safely(relative_or_absolute_path):
         pass
 
 class VideoListDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         videos = Video.objects.select_related("region", "user").all()
@@ -677,7 +675,6 @@ def get_rounded_average(queryset, field_name):
 
 
 class VideoDetailView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request, video_id):
         try:
