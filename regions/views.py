@@ -24,21 +24,103 @@ def risk_to_api(value):
     }.get(value, value)
 
 
+def get_video_skygazer_count(video):
+    return (
+        getattr(video, "skygazer_count", None)
+        or getattr(video, "skygazerCount", None)
+        or getattr(video, "ganjunchi_count", None)
+        or getattr(video, "ganjunchiCount", None)
+        or 0
+    )
+
+
+def get_latest_video(region):
+    try:
+        return region.videos.order_by("-date").first()
+    except Exception:
+        return None
+
+
+def get_latest_skygazer_count(region):
+    latest_video = get_latest_video(region)
+
+    if not latest_video:
+        return 0
+
+    return get_video_skygazer_count(latest_video)
+
+
+def get_total_skygazer_count(region):
+    try:
+        total = 0
+
+        for video in region.videos.all():
+            total += get_video_skygazer_count(video)
+
+        return total
+    except Exception:
+        return 0
+
+
+def get_analysis_count(region):
+    try:
+        return region.videos.count()
+    except Exception:
+        return 0
+
+
+def get_last_analyzed_at(region):
+    latest_video = get_latest_video(region)
+
+    if not latest_video:
+        return None
+
+    date_value = getattr(latest_video, "date", None)
+
+    if not date_value:
+        return None
+
+    return str(date_value)
+
+
+def calculate_risk_level(latest_count, caution_threshold, danger_threshold):
+    latest_count = int(latest_count or 0)
+    caution_threshold = int(caution_threshold or 0)
+    danger_threshold = int(danger_threshold or 0)
+
+    if latest_count >= danger_threshold:
+        return "HIGH"
+
+    if latest_count >= caution_threshold:
+        return "MEDIUM"
+
+    return "LOW"
+
+
 def region_response(r):
+    latest_skygazer_count = get_latest_skygazer_count(r)
+    total_skygazer_count = get_total_skygazer_count(r)
+
+    calculated_risk_level = calculate_risk_level(
+        latest_skygazer_count,
+        r.caution_threshold,
+        r.danger_threshold,
+    )
+
     return {
         "id": r.id,
         "name": r.name,
-        "region": r.address,
+        "address": r.address,
         "latitude": float(r.latitude),
         "longitude": float(r.longitude),
-        "risk": risk_to_api(r.risk_level),
-        "lastAnalyzedAt": None,
+        "risk": risk_to_api(calculated_risk_level),
+        "lastAnalyzedAt": get_last_analyzed_at(r),
         "cautionThreshold": r.caution_threshold,
         "dangerThreshold": r.danger_threshold,
         "createdAt": r.created_at.strftime("%Y-%m-%d") if r.created_at else None,
-        "analysisCount": 0,
-        "totalGanjunchiCount": 0,
-        "latestGanjunchiCount": 0,
+        "analysisCount": get_analysis_count(r),
+        "totalSkygazerCount": total_skygazer_count,
+        "latestSkygazerCount": latest_skygazer_count,
     }
 
 
@@ -47,17 +129,24 @@ def regions(request):
     if request.method == 'POST':
         data = request.data
 
+        caution_threshold = data.get("cautionThreshold", 5)
+        danger_threshold = data.get("dangerThreshold", 10)
+
         region = Region.objects.create(
             name=data.get("name"),
-            address=data.get("region"),
+            address=data.get("address"),
             latitude=data.get("latitude"),
             longitude=data.get("longitude"),
-            caution_threshold=data.get("cautionThreshold", 5),
-            danger_threshold=data.get("dangerThreshold", 10),
-            # risk_level=risk_to_db(data.get("risk", "LOW")),
+            caution_threshold=caution_threshold,
+            danger_threshold=danger_threshold,
+            risk_level=calculate_risk_level(
+                0,
+                caution_threshold,
+                danger_threshold,
+            ),
         )
 
-        return Response(region_response(region))
+        return Response(region_response(region), status=201)
 
     regions = Region.objects.all()
 
@@ -99,14 +188,25 @@ def region(request, region_id):
         data = request.data
 
         region.name = data.get("name", region.name)
-        region.address = data.get("region", region.address)
+        region.address = data.get("address", region.address)
         region.latitude = data.get("latitude", region.latitude)
         region.longitude = data.get("longitude", region.longitude)
-        region.caution_threshold = data.get("cautionThreshold", region.caution_threshold)
-        region.danger_threshold = data.get("dangerThreshold", region.danger_threshold)
+        region.caution_threshold = data.get(
+            "cautionThreshold",
+            region.caution_threshold,
+        )
+        region.danger_threshold = data.get(
+            "dangerThreshold",
+            region.danger_threshold,
+        )
 
-        if data.get("risk"):
-            region.risk_level = risk_to_db(data.get("risk"))
+        latest_skygazer_count = get_latest_skygazer_count(region)
+
+        region.risk_level = calculate_risk_level(
+            latest_skygazer_count,
+            region.caution_threshold,
+            region.danger_threshold,
+        )
 
         region.save()
 
@@ -140,7 +240,7 @@ def upload_regions(request):
 
     required_columns = [
         "name",
-        "region",
+        "address",
         "latitude",
         "longitude",
         "cautionThreshold",
@@ -156,20 +256,27 @@ def upload_regions(request):
 
     for _, row in df.iterrows():
         try:
+            caution_threshold = row["cautionThreshold"]
+            danger_threshold = row["dangerThreshold"]
+
             region = Region.objects.create(
                 name=row["name"],
-                address=row["region"],
+                address=row["address"],
                 latitude=row["latitude"],
                 longitude=row["longitude"],
-                caution_threshold=row["cautionThreshold"],
-                danger_threshold=row["dangerThreshold"],
-                risk_level="LOW",
+                caution_threshold=caution_threshold,
+                danger_threshold=danger_threshold,
+                risk_level=calculate_risk_level(
+                    0,
+                    caution_threshold,
+                    danger_threshold,
+                ),
             )
 
             created_items.append({
                 "id": region.id,
                 "name": region.name,
-                "region": region.address,
+                "address": region.address,
             })
 
         except Exception:
