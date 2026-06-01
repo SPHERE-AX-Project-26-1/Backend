@@ -2,6 +2,7 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.response import Response
 from rest_framework import status
 from .models import User
+from analysis.models import Event
 import jwt
 from django.conf import settings
 from datetime import datetime, timedelta
@@ -67,6 +68,12 @@ def login(request):
     }
 
     token = jwt.encode(payload, settings.SECRET_KEY, algorithm="HS256")
+
+    Event.objects.create(
+        user=None,
+        type=Event.Type.LOGIN,
+        detail=f"{user.username} 로그인"
+    )
 
     return Response({
         "token": token,
