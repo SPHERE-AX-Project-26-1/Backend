@@ -21,6 +21,7 @@ import requests
 from .models import Video, DetectedTime
 from regions.models import Region
 from analysis.models import Event
+from accounts.models import User
 
 
 MAX_VIDEO_SIZE = 2 * 1024 * 1024 * 1024
@@ -28,7 +29,7 @@ ALLOWED_VIDEO_EXTENSIONS = {".mp4", ".avi"}
 OPEN_METEO_ARCHIVE_URL = "https://archive-api.open-meteo.com/v1/archive"
 
 def call_fastapi(file_path: str) -> dict:
-    url = f"{settings.FAST_BASE_URL.rstrip('/')}/api/analyze"
+    url = f"{settings.FASTAPI_BASE_URL.rstrip('/')}/api/analyze"
 
     payload = {
         "video_path": file_path,
@@ -48,7 +49,7 @@ def call_fastapi(file_path: str) -> dict:
         response = requests.post(
             url,
             json=payload,
-            timeout=getattr(settings, "FASTAPI_ANALYZE_TIMEOUT", 900),
+            timeout=getattr(settings, "FASTAPI_ANALYZE_TIMEOUT", 10000),
         )
     except requests.exceptions.RequestException as e:
         raise RuntimeError(f"FastAPI 서버 호출 실패 : {e}")
@@ -123,16 +124,8 @@ def get_uploader_name(user):
     if hasattr(user, "name") and user.name:
         return user.name
 
-    if hasattr(user, "get_full_name"):
-        full_name = user.get_full_name()
-        if full_name:
-            return full_name
-
     if hasattr(user, "username") and user.username:
         return user.username
-
-    if hasattr(user, "email") and user.email:
-        return user.email
 
     return str(user)
 
@@ -247,7 +240,6 @@ def fetch_weather_by_date_and_location(target_date, latitude, longitude) -> str:
 
 class VideoUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
-    permission_classes = [IsAuthenticated]
 
     def post(self, request):
         uploaded_file = request.FILES.get("file")
@@ -474,6 +466,7 @@ def serialize_video_for_list(video: Video):
         "weather": video.weather,
         "duration": format_duration(video.duration),
         "uploader": get_uploader_name(video.user),
+        "thumbnailPath": video.thumbnail_path or "",
     }
 
 def get_safe_media_file_path(relative_or_absolute_path):
@@ -507,7 +500,6 @@ def delete_local_file_safely(relative_or_absolute_path):
         pass
 
 class VideoListDeleteView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request):
         videos = Video.objects.select_related("region", "user").all()
@@ -677,7 +669,6 @@ def get_rounded_average(queryset, field_name):
 
 
 class VideoDetailView(APIView):
-    permission_classes = [IsAuthenticated]
 
     def get(self, request, video_id):
         try:
@@ -724,6 +715,8 @@ class VideoDetailView(APIView):
                 "regionAvg": region_avg,
                 "yearAvg": year_avg,
                 "uploader": get_uploader_name(video.user),
+                "filePath": video.file_path or "",
+                "thumbnailPath": video.thumbnail_path or "",
             },
             status=drf_status.HTTP_200_OK,
         )
