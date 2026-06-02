@@ -2,6 +2,7 @@ from django.conf import settings
 from django.db import models
 from django.core.validators import MinValueValidator
 from regions.models import Region
+from accounts.models import User
 
 
 class Video(models.Model):
@@ -20,7 +21,7 @@ class Video(models.Model):
     id = models.BigAutoField(primary_key=True)
 
     user = models.ForeignKey(
-        settings.AUTH_USER_MODEL,
+        User,
         on_delete=models.CASCADE,
         db_column="user_id",
         related_name="videos"
