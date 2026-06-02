@@ -102,7 +102,7 @@ def region_response(r):
     total_skygazer_count = get_total_skygazer_count(r)
 
     calculated_risk_level = calculate_risk_level(
-        latest_skygazer_count,
+        total_skygazer_count,
         r.caution_threshold,
         r.danger_threshold,
     )
