@@ -93,7 +93,7 @@ def get_top_region(start_date, end_date):
     qs = get_base_queryset(start_date, end_date)
 
     row = (
-        qs.values("region__region_name")
+        qs.values("region__name")
         .annotate(
             count=Coalesce(
                 Sum("skygazer_count"),
@@ -101,7 +101,7 @@ def get_top_region(start_date, end_date):
                 output_field=BigIntegerField(),
             )
         )
-        .order_by("-count", "region__region_name")
+        .order_by("-count", "region__name")
         .first()
     )
 
@@ -112,7 +112,7 @@ def get_top_region(start_date, end_date):
         }
 
     return {
-        "name": row["region__region_name"],
+        "name": row["region__name"],
         "count": row["count"],
     }
 
@@ -137,7 +137,7 @@ def get_top_weather(start_date, end_date):
 
     if not row or total_detected == 0:
         return {
-            "name": "",
+            "weather": "",
             "percentage": 0,
         }
 
@@ -145,7 +145,7 @@ def get_top_weather(start_date, end_date):
     percentage = round((row["count"] / total_detected) * 100)
 
     return {
-        "name": weather_label,
+        "weather": weather_label,
         "percentage": int(percentage),
     }
 
@@ -202,7 +202,7 @@ def get_by_region_stats(start_date, end_date):
     qs = get_base_queryset(start_date, end_date)
 
     rows = (
-        qs.values("region__region_name")
+        qs.values("region__name")
         .annotate(
             total=Coalesce(
                 Sum("skygazer_count"),
@@ -210,11 +210,11 @@ def get_by_region_stats(start_date, end_date):
                 output_field=BigIntegerField(),
             )
         )
-        .order_by("-total", "region__region_name")
+        .order_by("-total", "region__name")
     )
 
     return {
-        "labels": [row["region__region_name"] for row in rows],
+        "labels": [row["region__name"] for row in rows],
         "data": [int(row["total"]) for row in rows],
     }
 
