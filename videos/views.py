@@ -466,6 +466,7 @@ def serialize_video_for_list(video: Video):
         "weather": video.weather,
         "duration": format_duration(video.duration),
         "uploader": get_uploader_name(video.user),
+        "thumbnailPath": video.thumbnail_path or "",
     }
 
 def get_safe_media_file_path(relative_or_absolute_path):
@@ -714,6 +715,8 @@ class VideoDetailView(APIView):
                 "regionAvg": region_avg,
                 "yearAvg": year_avg,
                 "uploader": get_uploader_name(video.user),
+                "filePath": video.file_path or "",
+                "thumbnailPath": video.thumbnail_path or "",
             },
             status=drf_status.HTTP_200_OK,
         )
