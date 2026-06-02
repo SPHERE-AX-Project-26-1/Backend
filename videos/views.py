@@ -507,12 +507,19 @@ class VideoListDeleteView(APIView):
         search = request.query_params.get("search", "").strip()
         region = request.query_params.get("name", "").strip()
         sort_by = request.query_params.get("sortBy", "date_desc").strip()
+        start_date_str = request.query_params.get("startDate", "").strip()
+        end_date_str = request.query_params.get("endDate", "").strip()
 
         if search:
             videos = videos.filter(region__name__icontains=search)
 
         if region:
             videos = videos.filter(region__name=region)
+
+        if start_date_str:
+            parsed = parse_date(start_date_str)
+            if parsed:
+                videos = videos.filter(created_at__date=parsed)
 
         if sort_by == "date_asc":
             videos = videos.order_by("date", "id")
