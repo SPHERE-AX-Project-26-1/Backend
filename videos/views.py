@@ -7,7 +7,7 @@ from django.shortcuts import get_object_or_404
 from django.utils.dateparse import parse_date
 from datetime import datetime
 from django.db import transaction
-from django.db.models import Avg, Count
+from django.db.models import Avg, Count, Sum
 from django.utils import timezone
 
 from rest_framework.views import APIView
@@ -237,6 +237,45 @@ def fetch_weather_by_date_and_location(target_date, latitude, longitude) -> str:
     return parse_weather_code_to_enum(int(weather_code))
 
 
+def decide_risk_level(total_skygazer_count, caution_threshold, danger_threshold):
+    total_skygazer_count = int(total_skygazer_count or 0)
+
+    if danger_threshold is not None and total_skygazer_count >= danger_threshold:
+        return Region.RiskLevel.HIGH
+
+    if caution_threshold is not None and total_skygazer_count >= caution_threshold:
+        return Region.RiskLevel.MEDIUM
+
+    return Region.RiskLevel.LOW
+
+def refresh_region_risk_level(region: Region):
+    total_skygazer_count = (
+        Video.objects
+        .filter(
+            region=region,
+            status=Video.Status.COMPLETED,
+        )
+        .aggregate(total=Sum("skygazer_count"))
+        .get("total")
+        or 0
+    )
+
+    new_risk_level = decide_risk_level(
+        total_skygazer_count=total_skygazer_count,
+        caution_threshold=region.caution_threshold,
+        danger_threshold=region.danger_threshold,
+    )
+
+    if region.risk_level != new_risk_level:
+        region.risk_level = new_risk_level
+        region.save(update_fields=["risk_level"])
+
+    return {
+        "total_skygazer_count": int(total_skygazer_count),
+        "risk_level": new_risk_level,
+    }
+
+
 
 class VideoUploadView(APIView):
     parser_classes = [MultiPartParser, FormParser]
@@ -403,6 +442,7 @@ class VideoUploadView(APIView):
                 ]
             )
             save_detected_times(video, fastapi_result)
+            refresh_region_risk_level(region)
 
             Event.objects.create(
                 user=request.user,
@@ -530,6 +570,8 @@ class VideoListDeleteView(APIView):
         else:
             videos = videos.order_by("-date", "-id")
 
+        videos = videos.filter(status=Video.Status.COMPLETED)
+
         total = videos.count()
 
         page = positive_int(
@@ -604,6 +646,8 @@ class VideoListDeleteView(APIView):
             if video.thumbnail_path:
                 file_paths_to_delete.append(video.thumbnail_path)
 
+        affected_region_ids = {video.region_id for video in videos}
+
         with transaction.atomic():
             for video in videos:
                 Event.objects.create(
@@ -612,6 +656,11 @@ class VideoListDeleteView(APIView):
                     detail=f"{video.title} 삭제"
                 )
                 video.delete()
+            
+            affected_regions = Region.objects.filter(id__in=affected_region_ids)
+
+            for region in affected_regions:
+                refresh_region_risk_level(region)
 
         for file_path in file_paths_to_delete:
             delete_local_file_safely(file_path)
