@@ -119,16 +119,13 @@ def ping(request):
 #     })
 
 @api_view(['GET'])
+@permission_classes([IsAuthenticated])
 def log_list(request):
-    payload = get_token_payload(request)
-    if payload is None:
-        return Response({"items": []}, status=status.HTTP_200_OK)
-
-    user_id = payload.get("id")
-    username = payload.get("username", "")
+    user = request.user
+    username = getattr(user, "username", "")
 
     logs = Event.objects.filter(
-        Q(user_id=user_id) |
+        Q(user=user) |
         Q(user__isnull=True, type=Event.Type.LOGIN, detail=f"{username} 로그인") |
         Q(user__isnull=True, type=Event.Type.LOGOUT, detail=f"{username} 로그아웃")
     ).order_by('-created_at')

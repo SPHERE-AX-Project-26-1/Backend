@@ -7,6 +7,9 @@ from accounts.models import User
 
 
 class DevJWTAuthentication(BaseAuthentication):
+    def authenticate_header(self, request):
+        return "Bearer"
+    
     def authenticate(self, request):
         if getattr(settings, "APP_ENV", "prod") == "dev":
             try:
@@ -34,7 +37,7 @@ class DevJWTAuthentication(BaseAuthentication):
         except jwt.PyJWTError:
             raise AuthenticationFailed("유효하지 않은 토큰입니다.")
 
-        user_id = payload.get("id")
+        user_id = payload.get("id") or payload.get("user_id")
 
         if not user_id:
             raise AuthenticationFailed("토큰에 사용자 정보가 없습니다.")
